@@ -15,6 +15,9 @@ from .entity import HomePilotEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+# Home Assistant 2026.11 renamed the climate temperature properties to native_*
+_NATIVE_TEMPERATURE = hasattr(ClimateEntity, "native_current_temperature")
+
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Setup of entities for sensor platform."""
@@ -56,7 +59,10 @@ class HomePilotClimateEntity(HomePilotEntity, ClimateEntity):
             name=f"{device.name}",
             device_class=None,
         )
-        self._attr_temperature_unit = temperature_unit
+        if _NATIVE_TEMPERATURE:
+            self._attr_native_temperature_unit = temperature_unit
+        else:
+            self._attr_temperature_unit = temperature_unit
         self._attr_max_temp = device.max_target_temperature
         self._attr_min_temp = device.min_target_temperature
         self._attr_target_temperature_step = device.step_target_temperature
@@ -82,20 +88,25 @@ class HomePilotClimateEntity(HomePilotEntity, ClimateEntity):
             temperature = kwargs["temperature"]
             await self.async_execute_and_poll(
                 lambda d: d.async_set_target_temperature(temperature),
-                lambda: self.target_temperature == temperature,
+                lambda: self._target_temperature() == temperature,
             )
 
-    @property
-    def current_temperature(self) -> float|None:
+    def _current_temperature(self) -> float|None:
         device: HomePilotThermostat = self.coordinator.data[self.did]
         return device.temperature_value if device.has_temperature else None
 
-    @property
-    def target_temperature(self) -> float|None:
+    def _target_temperature(self) -> float|None:
         device: HomePilotThermostat = self.coordinator.data[self.did]
         return (
             device.target_temperature_value if device.has_target_temperature else None
         )
+
+    if _NATIVE_TEMPERATURE:
+        native_current_temperature = property(_current_temperature)
+        native_target_temperature = property(_target_temperature)
+    else:
+        current_temperature = property(_current_temperature)
+        target_temperature = property(_target_temperature)
 
     @property
     def hvac_mode(self) -> HVACMode|None:
@@ -111,8 +122,9 @@ class HomePilotClimateEntity(HomePilotEntity, ClimateEntity):
         device: HomePilotThermostat = self.coordinator.data[self.did]
         if not device.has_relais_status:
             return None
-        if device.relais_status and self.current_temperature is not None and self.target_temperature is not None:
-            if self.current_temperature < self.target_temperature:
+        current, target = self._current_temperature(), self._target_temperature()
+        if device.relais_status and current is not None and target is not None:
+            if current < target:
                 return HVACAction.HEATING
             else:
                 return HVACAction.COOLING
