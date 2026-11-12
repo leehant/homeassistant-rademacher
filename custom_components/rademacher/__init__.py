@@ -284,7 +284,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     button_poller.async_start()
-    entry.async_on_unload(button_poller.async_stop)
     return True
 
 

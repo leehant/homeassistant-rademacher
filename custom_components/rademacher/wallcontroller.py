@@ -92,18 +92,20 @@ class WallControllerPoller:
         loop = self._hass.loop
         while True:
             started = loop.time()
-            try:
-                await asyncio.gather(
-                    *(
-                        self._async_poll_device(device)
-                        for device in self._devices
-                        if self._failures.get(device.did, (0, 0.0))[1] <= started
+            # return_exceptions: wait for all devices so polls never overlap.
+            results = await asyncio.gather(
+                *(
+                    self._async_poll_device(device)
+                    for device in self._devices
+                    if self._failures.get(device.did, (0, 0.0))[1] <= started
+                ),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    _LOGGER.error(
+                        "Unexpected error polling wall controllers", exc_info=result
                     )
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected error polling wall controllers")
             await asyncio.sleep(max(self._interval - (loop.time() - started), 0))
 
     async def _async_poll_device(self, device: HomePilotWallController) -> None:
@@ -119,13 +121,19 @@ class WallControllerPoller:
             # Back off (1 s, 2 s, 4 s ... max BUTTON_POLL_MAX_BACKOFF) and log once.
             failures = self._failures.get(did, (0, 0.0))[0] + 1
             backoff = min(
-                max(self._interval, 1.0) * 2 ** (failures - 1), BUTTON_POLL_MAX_BACKOFF
+                max(self._interval, 1.0) * 2 ** min(failures - 1, 10),
+                BUTTON_POLL_MAX_BACKOFF,
             )
             self._failures[did] = (failures, self._hass.loop.time() + backoff)
             if failures == 1:
                 _LOGGER.warning(
                     "Polling wall controller %s (%s) failed: %r", device.name, did, err
                 )
+            # Do not leave a channel "on" while the device is backing off.
+            if any(before.values()):
+                for channel in before:
+                    setattr(device, f"channel_{channel}", False)
+                self._async_notify(did)
             return
         if self._failures.pop(did, None) is not None:
             _LOGGER.info("Polling wall controller %s (%s) recovered", device.name, did)
@@ -147,17 +155,21 @@ class WallControllerPoller:
                 self._async_fire_event(device, channel)
 
         if after != before:
-            for update_callback in list(self._listeners.get(did, [])):
-                try:
-                    update_callback()
-                except Exception:  # pylint: disable=broad-except
-                    _LOGGER.exception("Error updating wall controller entity of %s", did)
+            self._async_notify(did)
+
+    @callback
+    def _async_notify(self, did: str) -> None:
+        for update_callback in list(self._listeners.get(did, [])):
+            try:
+                update_callback()
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Error updating wall controller entity of %s", did)
 
     @callback
     def _async_fire_event(self, device: HomePilotWallController, channel: int) -> None:
         device_registry = dr.async_get(self._hass)
         device_entry = device_registry.async_get_device(
-            identifiers={(DOMAIN, f"{self._entry.unique_id}_{device.did}")}
+            identifiers={(DOMAIN, f"{self._entry.unique_id or 'unknown'}_{device.did}")}
         )
         data = {
             "device_id": device_entry.id if device_entry else None,
