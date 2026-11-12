@@ -57,7 +57,7 @@ def button_poll_selector() -> NumberSelector:
             max=MAX_BUTTON_POLL_INTERVAL,
             step=0.1,
             unit_of_measurement="s",
-            mode=NumberSelectorMode.BOX,
+            mode=NumberSelectorMode.SLIDER,
         )
     )
 
