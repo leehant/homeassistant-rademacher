@@ -103,9 +103,29 @@ When configuring the Rademacher Bridge integration, either during the initial se
 | **Update Interval** | `update_interval` | The interval (in seconds) at which the integration polls the bridge for device updates. Adjustable between 5 and 120 seconds. | Number | `10` |
 | **Enable Cyclic Scene Polling** | `enable_cyclic_scene_polling` | If enabled, the integration will regularly poll the bridge to fetch and update the status of scenes. | Boolean | `false` |
 | **Scene Update Interval** | `scene_update_interval` | The interval (in seconds) at which the integration polls the bridge for scene updates. Adjustable between 10 and 120 seconds. | Number | `15` |
+| **Wall Button Poll Interval** | `button_poll_interval` | The interval (in seconds) at which all wall controllers (push buttons) are polled for key presses. One central poller per bridge, one request per wall controller and cycle. Adjustable between 0.2 and 10 seconds. Lower values react faster but put more load on the bridge; values below 0.5 are only recommended if needed. | Number | `2.0` |
 | **Create Scene Activation Entities** | `create_scene_activation_entities` | If enabled, dedicated entities will be created to allow active triggering and control of scenes from Home Assistant. | Boolean | `false` |
 | **Include Non Executable Scenes** | `include_non_executable_scenes` | If enabled, scenes registered on the bridge that are marked as non-executable will also be imported. | Boolean | `false` |
 | **Create Inverted Cover Position Sensors** | `create_inverted_cover_position` | If enabled, dedicated diagnostic sensor entities will be created to report the inverted cover and tilt position to match actual Rademacher bridge behavior. NOTE: If you disable this flag, you will need to manually delete the previously created entities so be careful when enabling it. | Boolean | `false` |
+
+## Wall Controller Button Events
+
+Every detected key press on a wall controller fires the Home Assistant event `rademacher_button_pressed` with the data `device_id` (HA device registry ID), `did` (bridge device ID), `channel`, `name` and `entry_id`. The channel binary sensors are updated at the same time, but they stay `on` for only one poll cycle, so the event is the more reliable automation trigger:
+
+```yaml
+automation:
+  - alias: "Wall button channel 1 toggles light"
+    trigger:
+      - platform: event
+        event_type: rademacher_button_pressed
+        event_data:
+          did: "1010031"   # or device_id: <HA device id>
+          channel: 1
+    action:
+      - service: light.toggle
+        target:
+          entity_id: light.living_room
+```
 
 # Automatic Modes, Command Buttons & Program-Active Sensors
 

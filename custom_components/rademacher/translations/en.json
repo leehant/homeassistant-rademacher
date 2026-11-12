@@ -13,6 +13,7 @@
           "include_non_executable_scenes": "Include Non Executable Scenes",
           "update_interval": "Update Interval (5–120 s)",
           "scene_update_interval": "Scene Update Interval (10–120 s)",
+          "button_poll_interval": "Wall Button Poll Interval (0.2–10 s)",
           "create_inverted_cover_position": "Create inverted cover position sensors"
         }
       }
@@ -45,6 +46,7 @@
           "include_non_executable_scenes": "Include Non Executable Scenes",
           "update_interval": "Update Interval (5–120 s)",
           "scene_update_interval": "Scene Update Interval (10–120 s)",
+          "button_poll_interval": "Wall Button Poll Interval (0.2–10 s)",
           "create_inverted_cover_position": "Create inverted cover position sensors"
         }
       }

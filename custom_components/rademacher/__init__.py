@@ -36,7 +36,13 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
     CONF_SCENE_UPDATE_INTERVAL,
     DEFAULT_SCENE_UPDATE_INTERVAL,
+    CONF_BUTTON_POLL_INTERVAL,
+    DEFAULT_BUTTON_POLL_INTERVAL,
+    MIN_BUTTON_POLL_INTERVAL,
+    MAX_BUTTON_POLL_INTERVAL,
+    MIN_UPDATE_TIMEOUT,
 )
+from .wallcontroller import WallControllerPoller
 
 # List of platforms to support. There should be a matching .py file for each,
 # eg <cover.py> and <sensor.py>
@@ -139,7 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Scene IDs: %s", list(manager.scenes))
 
     update_interval = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-    update_timeout = min(update_interval - 2, 10)
+    update_timeout = max(min(update_interval - 2, 10), MIN_UPDATE_TIMEOUT)
 
     async def async_update_data():
         """Fetch data from API endpoint.
@@ -167,7 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     scene_update_interval = entry.options.get(CONF_SCENE_UPDATE_INTERVAL, DEFAULT_SCENE_UPDATE_INTERVAL)
-    scene_update_timeout = min(scene_update_interval - 2, 10)
+    scene_update_timeout = max(min(scene_update_interval - 2, 10), MIN_UPDATE_TIMEOUT)
     async def async_update_scene_data():
         """Fetch data from API endpoint.
         This is the place to pre-process the data to lookup tables
@@ -212,12 +218,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if CONF_CREATE_INVERTED_COVER_POSITION not in entry.options:
         entry_options[CONF_CREATE_INVERTED_COVER_POSITION] = False
 
+    button_poll_interval = min(
+        max(
+            float(entry.options.get(CONF_BUTTON_POLL_INTERVAL, DEFAULT_BUTTON_POLL_INTERVAL)),
+            MIN_BUTTON_POLL_INTERVAL,
+        ),
+        MAX_BUTTON_POLL_INTERVAL,
+    )
+    button_poller = WallControllerPoller(
+        hass, entry, manager, entry_options[CONF_EXCLUDE], button_poll_interval
+    )
+
     hass.data[DOMAIN][entry.entry_id] = (
         manager,
         coordinator,
         entry.data,
         entry_options,
         scene_coordinator,
+        button_poller,
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -264,6 +282,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # This creates each HA object for each platform your device requires.
     # It's done by calling the `async_setup_entry` function in each platform module.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    button_poller.async_start()
+    entry.async_on_unload(button_poller.async_stop)
     return True
 
 
@@ -279,7 +300,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # details
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        manager, _, _, _, _ = hass.data[DOMAIN].pop(entry.entry_id)
+        manager, _, _, _, _, button_poller = hass.data[DOMAIN].pop(entry.entry_id)
+        # Stop polling before the API session is closed
+        button_poller.async_stop()
         # Close the API session
         await manager.api.async_close()
 

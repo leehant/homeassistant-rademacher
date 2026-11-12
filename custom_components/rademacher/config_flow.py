@@ -37,12 +37,29 @@ from .const import (
     CONF_SCENE_UPDATE_INTERVAL,
     DEFAULT_SCENE_UPDATE_INTERVAL,
     CONF_CREATE_INVERTED_COVER_POSITION,
+    CONF_BUTTON_POLL_INTERVAL,
+    DEFAULT_BUTTON_POLL_INTERVAL,
+    MIN_BUTTON_POLL_INTERVAL,
+    MAX_BUTTON_POLL_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 DATA_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str})
 DATA_SCHEMA_PASSWORD = vol.Schema({vol.Required(CONF_PASSWORD): str})
+
+
+def button_poll_selector() -> NumberSelector:
+    """Selector for the wall controller (button) poll interval."""
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=MIN_BUTTON_POLL_INTERVAL,
+            max=MAX_BUTTON_POLL_INTERVAL,
+            step=0.1,
+            unit_of_measurement="s",
+            mode=NumberSelectorMode.BOX,
+        )
+    )
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -78,6 +95,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_INCLUDE_NON_EXECUTABLE_SCENES: user_input.get(CONF_INCLUDE_NON_EXECUTABLE_SCENES, False),
                     CONF_UPDATE_INTERVAL: int(user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
                     CONF_SCENE_UPDATE_INTERVAL: int(user_input.get(CONF_SCENE_UPDATE_INTERVAL, DEFAULT_SCENE_UPDATE_INTERVAL)),
+                    CONF_BUTTON_POLL_INTERVAL: float(user_input.get(CONF_BUTTON_POLL_INTERVAL, DEFAULT_BUTTON_POLL_INTERVAL)),
                     CONF_CREATE_INVERTED_COVER_POSITION: user_input.get(CONF_CREATE_INVERTED_COVER_POSITION, False),
                 }
                 return self.async_create_entry(
@@ -373,6 +391,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_SCENE_UPDATE_INTERVAL, default=DEFAULT_SCENE_UPDATE_INTERVAL): NumberSelector(
                     NumberSelectorConfig(min=10, max=120, step=1, unit_of_measurement="s", mode=NumberSelectorMode.SLIDER)
                 ),
+                vol.Optional(CONF_BUTTON_POLL_INTERVAL, default=DEFAULT_BUTTON_POLL_INTERVAL): button_poll_selector(),
             }
         )
         schema = schema.extend(
@@ -398,6 +417,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_INCLUDE_NON_EXECUTABLE_SCENES: user_input.get(CONF_INCLUDE_NON_EXECUTABLE_SCENES, False),
                 CONF_UPDATE_INTERVAL: int(user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
                 CONF_SCENE_UPDATE_INTERVAL: int(user_input.get(CONF_SCENE_UPDATE_INTERVAL, DEFAULT_SCENE_UPDATE_INTERVAL)),
+                CONF_BUTTON_POLL_INTERVAL: float(user_input.get(CONF_BUTTON_POLL_INTERVAL, DEFAULT_BUTTON_POLL_INTERVAL)),
                 CONF_CREATE_INVERTED_COVER_POSITION: user_input.get(CONF_CREATE_INVERTED_COVER_POSITION, False),
             }
             return self.async_create_entry(title=f"{self.hostname} ({self.mac_address})", data=data)
@@ -451,13 +471,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             previous_create_inverted_cover_position = self.config_entry.options.get(
                 CONF_CREATE_INVERTED_COVER_POSITION, False
             )
+            previous_button_poll_interval = self.config_entry.options.get(
+                CONF_BUTTON_POLL_INTERVAL, DEFAULT_BUTTON_POLL_INTERVAL
+            )
 
             data_schema_config = self.build_data_schema(
                 manager.devices, previous_excluded_devices, previous_ternary_contact_sensors,
                 previous_enable_scene_polling, previous_create_scene_activation_entities,
                 previous_include_non_executable_scenes, previous_update_interval,
                 previous_scene_update_interval,
-                previous_create_inverted_cover_position
+                previous_create_inverted_cover_position,
+                previous_button_poll_interval,
             )
 
             return self.async_show_form(step_id="init", data_schema=data_schema_config)
@@ -469,7 +493,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         previous_enable_scene_polling, previous_create_scene_activation_entities,
         previous_include_non_executable_scenes, previous_update_interval=DEFAULT_UPDATE_INTERVAL,
         previous_scene_update_interval=DEFAULT_SCENE_UPDATE_INTERVAL,
-        previous_create_inverted_cover_position=False
+        previous_create_inverted_cover_position=False,
+        previous_button_poll_interval=DEFAULT_BUTTON_POLL_INTERVAL,
     ):
         devices_to_exclude = {
             did: f"{devices[did].name} (id: {devices[did].did})" for did in devices
@@ -526,6 +551,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): NumberSelector(
                     NumberSelectorConfig(min=10, max=120, step=1, unit_of_measurement="s", mode=NumberSelectorMode.SLIDER)
                 ),
+                vol.Optional(
+                    CONF_BUTTON_POLL_INTERVAL, default=previous_button_poll_interval
+                ): button_poll_selector(),
             }
         )
         schema = schema.extend(

@@ -1,5 +1,4 @@
 """Platform for Rademacher Bridge."""
-from datetime import timedelta
 import logging
 
 from homepilot.cover import HomePilotCover
@@ -16,11 +15,11 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EXCLUDE, CONF_SENSOR_TYPE
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .entity import HomePilotEntity
+from .wallcontroller import WallControllerPoller
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_entities)
     coordinator: DataUpdateCoordinator = entry[1]
     exclude_devices: list[str] = entry[3][CONF_EXCLUDE]
     ternary_contact_sensors: list[str] = entry[3][CONF_SENSOR_TYPE]
+    button_poller: WallControllerPoller = entry[5]
     new_entities = []
 
     for did in manager.devices:
@@ -242,7 +242,8 @@ async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_entities)
                                 value_attr=f"channel_{channel}",
                                 device_class=BinarySensorDeviceClass.RUNNING,
                                 has_channels=True,
-                                should_poll=channel == 1 #Only the first Channel needs to poll data of device
+                                should_poll=False,  # updated by the central WallControllerPoller
+                                button_poller=button_poller,
                             )
                         )
                 else:
@@ -284,6 +285,7 @@ class HomePilotBinarySensorEntity(HomePilotEntity, BinarySensorEntity):
         has_channels=False,
         should_poll=True,
         entity_registry_enabled_default=True,
+        button_poller=None,
     ):
         super().__init__(
             coordinator,
@@ -299,27 +301,15 @@ class HomePilotBinarySensorEntity(HomePilotEntity, BinarySensorEntity):
         self._icon_off = icon_off
         self._has_channels = has_channels
         self._should_poll = should_poll
+        self._button_poller = button_poller
 
     async def async_added_to_hass(self) -> None:
-        """Set up a timer for updating."""
-        if self._has_channels:
+        """Subscribe to the central wall controller poller."""
+        await super().async_added_to_hass()
+        if self._has_channels and self._button_poller is not None:
             self.async_on_remove(
-                async_track_time_interval(
-                    self.hass, self._data_refresh, timedelta(seconds=2)
-                )
+                self._button_poller.async_add_listener(self.did, self.async_write_ha_state)
             )
-
-    async def _data_poll(self):
-        _LOGGER.debug("### Pull data for Device ID: %s, %s, entity_id: %s", self.did, self._value_attr, self.entity_id)
-        if isinstance(self.coordinator.data[self.did], HomePilotWallController):
-            device: HomePilotWallController = self.coordinator.data[self.did]
-            await device.update_channels()
-            await self.coordinator.async_request_refresh()
-
-    async def _data_refresh(self, event_time):
-        if self._should_poll:
-            await self._data_poll()
-        self.async_write_ha_state()
 
     @property
     def should_poll(self):
