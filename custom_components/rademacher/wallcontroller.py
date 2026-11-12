@@ -168,9 +168,13 @@ class WallControllerPoller:
     @callback
     def _async_fire_event(self, device: HomePilotWallController, channel: int) -> None:
         device_registry = dr.async_get(self._hass)
-        device_entry = device_registry.async_get_device(
-            identifiers={(DOMAIN, f"{self._entry.unique_id or 'unknown'}_{device.did}")}
-        )
+        identifier = (DOMAIN, f"{self._entry.unique_id or 'unknown'}_{device.did}")
+        if hasattr(device_registry, "async_get_device_by_identifier"):
+            device_entry = device_registry.async_get_device_by_identifier(
+                identifier, self._entry.entry_id
+            )
+        else:  # older Home Assistant versions
+            device_entry = device_registry.async_get_device(identifiers={identifier})
         data = {
             "device_id": device_entry.id if device_entry else None,
             "did": str(device.did),
